@@ -9,17 +9,21 @@
  int slm_trigger=11;    // if high start showing image
  int slm_out=9;         // SLM LED enable signal, showing images when signal is High
  int cam_in=2;          // from arduino to camera_in (start exposure)
- int cam_out=3;         // from camera_out to arduino. signal is high if camera is ready for next exposure (output from camera to arduino)
+ int cam_out=4;         // from camera_out to arduino. signal is high if camera is ready for next exposure (output from camera to arduino)
+ int cam_out_G=3;
  int aotf_enable=7;     // if high switch AOTF to on / blanking mode as well
  int aotf_signal=6;     // set amplitude of sound wave of AOTF
  int blinks=3;          // number of blinks at the beginning     
  int countblinks=0;
  int mindelay=10;       // time for delay
  
- int NumBlanks=5;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
- int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
- int NumDirs=3;      // number of directions of grating
- int NumPhases=3;    // number of phases of grating
+ int NumBlanks=0;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
+ //int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
+ //int NumDirs=3;      // number of directions of grating
+ //int NumPhases=3;    // number of phases of grating
+ int rep=1;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
+ int NumDirs=2;      // number of directions of grating
+ int NumPhases=1;    // number of phases of grating
  
  
 /*
@@ -51,7 +55,7 @@ void setup() {
     //CAMERA
     pinMode(cam_in, OUTPUT);   // output signal from arduino to camera; exposure while signal is high 
     pinMode(cam_out, INPUT);   // iutput signal from camera to arduino; Camera Trigger ready output  
-            
+    pinMode(cam_out_G, INPUT);         
     //AOTF             
     pinMode(aotf_enable, OUTPUT);  // output signal from arduino to AOTF; SLM is not illuminated but only for blink test
     pinMode(aotf_signal, OUTPUT);  // output signal from arduino to AOTF;  
@@ -114,16 +118,19 @@ void loop() {
  // while(digitalRead(slm_out)==HIGH) {
  //       delayMicroseconds(mindelay);} // finnish the current partially displaying SLM cycle High; 
 
- digitalWrite(slm_trigger,HIGH);   //starts image sequence with all directions and patterns
+ //digitalWrite(slm_trigger,HIGH);   //starts image sequence with all directions and patterns
  
   for(int d=0;d<NumDirs;d++)    // replications of the pattern // 'd++' means ' d=d+1'   
   for(int p=0;p<NumPhases;p++)    // replications of the pattern    
   {
   digitalWrite(cam_in,HIGH);   //start camera intergration 
-
-        
+  delay(2.56);  // unit in msec
+  if(1||p==0 && d==0){
+    
+    digitalWrite(slm_trigger,HIGH);     
+  }
   for(int i=0;i<rep;i++){    // replications of the pattern, but only run SLMCycle once in the first time (i=0)
-      SLMCycle(1);  // 1 shutters only positive frames, 2 shutters both positive and negative frames
+      SLMCycle(2);  // 1 shutters only positive frames, 2 shutters both positive and negative frames
       digitalWrite(slm_trigger,LOW);      //here the arduino has time - so we set the sending trigger signal back to low  
     }
   digitalWrite(cam_in,LOW)  ;         //end integration of Camera --> readout starts    
