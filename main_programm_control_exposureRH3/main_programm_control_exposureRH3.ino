@@ -17,13 +17,13 @@
  int countblinks=0;
  int mindelay=10;       // time for delay
  
- int NumBlanks=0;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
+ int NumBlanks=1;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
  //int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
  //int NumDirs=3;      // number of directions of grating
  //int NumPhases=3;    // number of phases of grating
- int rep=1;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
+ int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
  int NumDirs=2;      // number of directions of grating
- int NumPhases=1;    // number of phases of grating
+ int NumPhases=3;    // number of phases of grating
  
  
 /*
@@ -70,75 +70,66 @@ void setup() {
 
 
 
-void SLMCycle(int DoAOTF)   // processes one SLM cycle on-switch-off-switch, DoAOTF==0 mean Laser always off, DoAOTF==2 means Laser on Frame and Antiframe, DoAOTF==1 means Laser on only Frame
+void SLMIlluminateFrame(int illum_mode)   
+// processes one SLM cycle on-switch-off-switch, illum_mode==0 mean
+// Laser always off, illum_mode==2 means Laser on Frame and Antiframe,
+// illum_mode==1 means Laser on only Frame
 {
-       while(digitalRead(slm_out)==LOW) {
-       delayMicroseconds(mindelay);} // while the signal of slm_out still Low, then do the delay in micorseconds untill the signal goes to High; 
-                                     // this delay is for checking digitalRead not so often
-                                     // at the moment, there is no image on SLM, and wait that slm displays next image
-    
-      // Now the positive image of grating is shown -> turn on the laser
-      if (DoAOTF>0) digitalWrite(aotf_enable,HIGH);     // illuminate SLM
-      
-      while(digitalRead(slm_out)==HIGH){
-       delayMicroseconds(mindelay);}  // while the signal of slm_out still High, then do the delay in micorseconds untill the signal goes to Low;
-                                      // at the moment, there is a positive image on SLM, wait for SLM switching process
+  while(digitalRead(slm_out)==LOW)
+    delayMicroseconds(mindelay);
+  
+  if (illum_mode>0)
+    digitalWrite(aotf_enable,HIGH);     // illuminate SLM
+  
+  while(digitalRead(slm_out)==HIGH)
+    delayMicroseconds(mindelay);
+  
+  if (illum_mode>0)
+    digitalWrite(aotf_enable,LOW); // prevent illumination while SLM in undefined state
 
-      // Now SLM is under switching process the laser should be off, then the next step of SLM will be to change to negative image
-      if (DoAOTF>0) digitalWrite(aotf_enable,LOW);     // stop illumination the SLM
-                                                     // camera still integrating!
-      while(digitalRead(slm_out)==LOW) {
-       delayMicroseconds(mindelay);}   // wait that SLM shows negative image      
-      // SLM shows negative image
-      if (DoAOTF>1) digitalWrite(aotf_enable,HIGH);      // illuminate the SLM again     
+  while(digitalRead(slm_out)==LOW) // wait until SLM shows negative image      
+    delayMicroseconds(mindelay);
 
-      while(digitalRead(slm_out)==HIGH){
-       delayMicroseconds(mindelay);}   // wait that SLM switches to next grating     
-      // SLM is now switching to the next grating     
-      if (DoAOTF>1) digitalWrite(aotf_enable,LOW) ;          // stop illuminating the SLM
+  if (illum_mode>1)
+    digitalWrite(aotf_enable,HIGH); // illuminate the SLM again     
+
+  while(digitalRead(slm_out)==HIGH) // wait that SLM switches to next image
+    delayMicroseconds(mindelay);
+ 
+  if (illum_mode>1) 
+    digitalWrite(aotf_enable,LOW) ;          // stop illuminating the SLM
 }
 
 void loop() {
-  unsigned long mytime;  int wasreset; // 'unsigned' means no negative, show everything only in positive
   digitalWrite(slm_trigger,LOW);
   digitalWrite(aotf_enable,LOW);  
-  
-  
-  mytime=millis();
-  wasreset=0;
-  
+    
   while(digitalRead(cam_out)==LOW) {  // Wait for Camera ready signal -> high
     delayMicroseconds(mindelay);  
   } //wait for cam_out==HIGH
   
   delay(2);  // unit in msec
-  cli();   // disable the interrupts for the time that pricise timing is needed
-                                      //camera is reading out at the moment
-                                      //cam ready for exposure                                      
- // while(digitalRead(slm_out)==HIGH) {
- //       delayMicroseconds(mindelay);} // finnish the current partially displaying SLM cycle High; 
-
- //digitalWrite(slm_trigger,HIGH);   //starts image sequence with all directions and patterns
+  cli();   
  
-  for(int d=0;d<NumDirs;d++)    // replications of the pattern // 'd++' means ' d=d+1'   
-  for(int p=0;p<NumPhases;p++)    // replications of the pattern    
-  {
-  digitalWrite(cam_in,HIGH);   //start camera intergration 
-  delay(2.56);  // unit in msec
-  if(1||p==0 && d==0){
-    
-    digitalWrite(slm_trigger,HIGH);     
-  }
-  for(int i=0;i<rep;i++){    // replications of the pattern, but only run SLMCycle once in the first time (i=0)
-      SLMCycle(2);  // 1 shutters only positive frames, 2 shutters both positive and negative frames
-      digitalWrite(slm_trigger,LOW);      //here the arduino has time - so we set the sending trigger signal back to low  
+  for(int d=0;d<NumDirs;d++)   
+    for(int p=0;p<NumPhases;p++){
+      digitalWrite(cam_in,HIGH);   //start camera intergration 
+      while(digitalRead(cam_out_G)==LOW) {  // wait for global exposure to start
+	delayMicroseconds(mindelay); 
+      }
+      
+      digitalWrite(slm_trigger,HIGH); // start slm     
+      for(int i=0;i<rep;i++){ 
+        SLMIlluminateFrame(2);  
+	digitalWrite(slm_trigger,LOW);  
+      }
+      
+      digitalWrite(cam_in,LOW)  ;         //end integration of Camera --> readout starts    
+      for(int i=0;i<NumBlanks;i++){    // listen to the SLM for timing purposes
+        SLMIlluminateFrame(0);
+      } 
     }
-  digitalWrite(cam_in,LOW)  ;         //end integration of Camera --> readout starts    
-  for(int i=0;i<NumBlanks;i++){    // listen to the SLM for timing purposes
-      SLMCycle(0);
-    } 
-  }
-  // delayMicroseconds(1000);
-  sei();   // allow the arduino to perform housekeeping stuff
-  // delayMicroseconds(mindelay);  //wait for SLM switching process
+
+  sei();
+  delayMicroseconds(mindelay);  //wait for SLM switching process
 }
