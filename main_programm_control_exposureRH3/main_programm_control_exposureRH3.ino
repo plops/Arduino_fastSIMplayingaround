@@ -17,14 +17,15 @@
  int countblinks=0;
  int mindelay=10;       // time for delay
  
- int NumBlanks=1;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
+ int NumBlanks=0;    // number of cylces the SLM keeps displaying a pattern before the camera and AOTF are ready for next pattern 
  //int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
  //int NumDirs=3;      // number of directions of grating
  //int NumPhases=3;    // number of phases of grating
- int rep=2;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
- int NumDirs=2;      // number of directions of grating
- int NumPhases=3;    // number of phases of grating
- 
+ int rep=1;          // number of repetitions of pos-switch-neg SLM displays and AOTF on-off-on sequences
+ int NumDirs=3;      // number of directions of grating
+ int NumPhases=7;    // number of phases of grating
+ unsigned long mytimeout=3000;  // Timeout in millisecs
+ int SLMPhase=0;
  
 /*
   while loops will loop continuously, and infinitely,
@@ -70,66 +71,109 @@ void setup() {
 
 
 
-void SLMIlluminateFrame(int illum_mode)   
-// processes one SLM cycle on-switch-off-switch, illum_mode==0 mean
-// Laser always off, illum_mode==2 means Laser on Frame and Antiframe,
-// illum_mode==1 means Laser on only Frame
+void SLMCycle(int DoAOTF) {  // processes one SLM cycle on-switch-off-switch, DoAOTF==0 mean Laser always off, DoAOTF==2 means Laser on Frame and Antiframe, DoAOTF==1 means Laser on only Frame
+       SLMPhase++;  // To keept track of SLM position
+       while(digitalRead(slm_out)==LOW) {
+       delayMicroseconds(mindelay);} // while the signal of slm_out still Low, then do the delay in micorseconds untill the signal goes to High; 
+                                     // this delay is for checking digitalRead not so often
+                                     // at the moment, there is no image on SLM, and wait that slm displays next image
+    
+      // Now the positive image of grating is shown -> turn on the laser
+      if (DoAOTF>0) digitalWrite(aotf_enable,HIGH);     // illuminate SLM
+      
+      while(digitalRead(slm_out)==HIGH){
+       delayMicroseconds(mindelay);}  // while the signal of slm_out still High, then do the delay in micorseconds untill the signal goes to Low;
+                                      // at the moment, there is a positive image on SLM, wait for SLM switching process
+
+      // Now SLM is under switching process the laser should be off, then the next step of SLM will be to change to negative image
+      if (DoAOTF>0) digitalWrite(aotf_enable,LOW);     // stop illumination the SLM
+                                                     // camera still integrating!
+      while(digitalRead(slm_out)==LOW) {
+       delayMicroseconds(mindelay);}   // wait that SLM shows negative image      
+      // SLM shows negative image
+      if (DoAOTF>1) digitalWrite(aotf_enable,HIGH);      // illuminate the SLM again     
+
+      while(digitalRead(slm_out)==HIGH){
+       delayMicroseconds(mindelay);}   // wait that SLM switches to next grating     
+      // SLM is now switching to the next grating     
+      if (DoAOTF>1) digitalWrite(aotf_enable,LOW) ;          // stop illuminating the SLM
+}
+
+void CheckSLMPos(void)   // Checks the state of the SLM and introduces SLM dummy cycles if necessary  
+                         // void (does not return anything)
+                         // the void inside the main()means that no return value go into main()
 {
-  while(digitalRead(slm_out)==LOW)
-    delayMicroseconds(mindelay);
-  
-  if (illum_mode>0)
-    digitalWrite(aotf_enable,HIGH);     // illuminate SLM
-  
-  while(digitalRead(slm_out)==HIGH)
-    delayMicroseconds(mindelay);
-  
-  if (illum_mode>0)
-    digitalWrite(aotf_enable,LOW); // prevent illumination while SLM in undefined state
-
-  while(digitalRead(slm_out)==LOW) // wait until SLM shows negative image      
-    delayMicroseconds(mindelay);
-
-  if (illum_mode>1)
-    digitalWrite(aotf_enable,HIGH); // illuminate the SLM again     
-
-  while(digitalRead(slm_out)==HIGH) // wait that SLM switches to next image
-    delayMicroseconds(mindelay);
- 
-  if (illum_mode>1) 
-    digitalWrite(aotf_enable,LOW) ;          // stop illuminating the SLM
+  long TotalPhases=NumDirs*NumPhases;
+  while (SLMPhase%TotalPhases != 0)   // != (not equal to)    //If SLMPhase not the same as TotalPhases
+    SLMCycle(0);
+  SLMPhase=0;
 }
 
 void loop() {
+  unsigned long mytime;  int wasreset; // 'unsigned' means no negative, show everything only in positive
   digitalWrite(slm_trigger,LOW);
   digitalWrite(aotf_enable,LOW);  
-    
+     
+  CheckSLMPos();
   while(digitalRead(cam_out)==LOW) {  // Wait for Camera ready signal -> high
-    delayMicroseconds(mindelay);  
-  } //wait for cam_out==HIGH
-  
-  delay(2);  // unit in msec
-  cli();   
+     delayMicroseconds(mindelay);  
+   } 
  
-  for(int d=0;d<NumDirs;d++)   
-    for(int p=0;p<NumPhases;p++){
-      digitalWrite(cam_in,HIGH);   //start camera intergration 
-      while(digitalRead(cam_out_G)==LOW) {  // wait for global exposure to start
-	delayMicroseconds(mindelay); 
-      }
-      
-      digitalWrite(slm_trigger,HIGH); // start slm     
-      for(int i=0;i<rep;i++){ 
-        SLMIlluminateFrame(2);  
-	digitalWrite(slm_trigger,LOW);  
-      }
-      
-      digitalWrite(cam_in,LOW)  ;         //end integration of Camera --> readout starts    
-      for(int i=0;i<NumBlanks;i++){    // listen to the SLM for timing purposes
-        SLMIlluminateFrame(0);
-      } 
-    }
+  mytime=millis();
+  wasreset=0;
 
-  sei();
+  //delay(2);  // unit in msec
+  cli();   // disable the interrupts for the time that pricise timing is needed
+                                      //camera is reading out at the moment
+                                      //cam ready for exposure                                      
+ 
+  for(int d=0;d<NumDirs;d++)    // replications of the pattern // 'd++' means ' d=d+1'   
+  for(int p=0;p<NumPhases;p++)    // replications of the pattern    
+  {
+    //if (~wasreset)
+      digitalWrite(cam_in,HIGH);   //start camera intergration 
+
+      while(!wasreset && digitalRead(cam_out_G)==LOW) {  // Wait for global exposute to go high, // && means 'and'
+         if (millis() > mytime + mytimeout)  // time out reached
+             wasreset=1;
+       } 
+      if (wasreset) {delay(100);}
+  
+      digitalWrite(slm_trigger,HIGH);     
+
+      for(int i=0;i<rep;i++){    //1 replications of the pattern, but only run SLMCycle once in the first time (i=0)
+         SLMCycle(2);  // 1 shutters only positive frames, 2 shutters both positive and negative frames
+         digitalWrite(slm_trigger,LOW);  //here the arduino has time - so we set the sending trigger signal back to low 
+       }
+
+
+      //if (~wasreset)  // ~changes each bit to its opposite, means 'either 1 to 0 or 0 to 1'
+      digitalWrite(cam_in,LOW)  ;    //end integration of Camera --> readout starts  
+  
+      while(!wasreset && digitalRead(cam_out)==LOW){  // wait for camera ready signal to go high
+         delayMicroseconds(mindelay);  
+         if (millis() > mytime + mytimeout)  // time out reached
+             wasreset=1;                     // The brackets may be omitted after an if statement. If this is done, the next line (defined by the semicolon) becomes the only conditional statement.
+       }
+      if (wasreset) {delay(100);}
+  
+      //for(int i=0;i<NumBlanks;i++){    // listen to the SLM for timing purposes
+      //      SLMCycle(0);
+      //    } 
+  }
+  
+  sei();   // allow the arduino to perform housekeeping stuff
   delayMicroseconds(mindelay);  //wait for SLM switching process
+  
+  // remove the following part if you want to run Life mode!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  
+  
+  while(digitalRead(cam_out)==LOW){ // wait for camera ready to go high
+     delayMicroseconds(mindelay);  
+   }
+
+  delay(300);  //wait for SLM switching process
+  while(digitalRead(cam_out)==HIGH){  // wait for camera ready to go low by itself (only for fixed number acquisition)
+     delayMicroseconds(mindelay); 
+   } 
 }
